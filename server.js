@@ -98,6 +98,35 @@ function broadcastAudio(sender, messageData) {
     });
 }
 
+// Spectrum Scanner Logic
+function broadcastScanResult() {
+    const activeFreqs = {};
+
+    // Aggregate users per frequency
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN && client.currentFreq) {
+            const f = client.currentFreq;
+            activeFreqs[f] = (activeFreqs[f] || 0) + 1;
+        }
+    });
+
+    const payload = JSON.stringify({
+        type: 'scan',
+        data: activeFreqs
+    });
+
+    // Broadcast map
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(payload);
+        }
+    });
+}
+
+// Run scan every 3 seconds
+setInterval(broadcastScanResult, 3000);
+
+
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
