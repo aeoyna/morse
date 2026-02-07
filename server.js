@@ -9,7 +9,7 @@ const wss = new WebSocket.Server({ server });
 
 // Serve static files from 'public' directory
 // Serve static files from root directory
-app.use(express.static(__dirname));
+app.use(express.static('public'));
 
 // Store clients by frequency
 // Map<Frequency, Set<WebSocket>>
