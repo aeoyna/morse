@@ -34,17 +34,17 @@ wss.on('connection', (ws) => {
                 const data = JSON.parse(msgString);
                 if (data.type === 'tune') {
                     handleTune(ws, data.freq);
+                } else if (data.type === 'audio') {
+                    // Start of audio relay with frequency check
+                    broadcastAudio(ws, msgString);
                 }
             } else {
-                // Should be binary audio
+                // Should be binary audio (Legacy support or fallback)
                 broadcastAudio(ws, message);
             }
         } catch (e) {
             console.error('Error handling message:', e);
-            // If JSON parse failed, it might be binary? 
-            // Ideally we differentiate by assuming binary unless it parses as JSON.
-            // For now, let's try to broadcast as audio if it failed parse.
-            broadcastAudio(ws, message);
+            // broadcastAudio(ws, message); // Disable blind broadcast for now to prefer JSON
         }
     });
 
@@ -56,12 +56,18 @@ wss.on('connection', (ws) => {
 
 function handleTune(ws, freq) {
     removeFromChannel(ws);
-    if (!channels.has(freq)) {
-        channels.set(freq, new Set());
+    // For range query, we might want a different struct, but Map iteration is fine for small scale.
+    // Ideally we just store all clients in a Set or Map key=ws val=freq?
+    // Let's keep `channels` for exact match if needed, but for range we iterate everything.
+    // Actually, let's keep `ws.currentFreq` property as primary source of truth.
+
+    ws.currentFreq = parseInt(freq);
+
+    // Add to channel map (still useful for exact match queries if needed)
+    if (!channels.has(ws.currentFreq)) {
+        channels.set(ws.currentFreq, new Set());
     }
-    channels.get(freq).add(ws);
-    ws.currentFreq = freq;
-    // console.log(`Client tuned to ${freq}Hz`);
+    channels.get(ws.currentFreq).add(ws);
 }
 
 function removeFromChannel(ws) {
@@ -74,17 +80,24 @@ function removeFromChannel(ws) {
     }
 }
 
-function broadcastAudio(sender, data) {
-    const freq = sender.currentFreq;
-    if (!freq || !channels.has(freq)) return;
+function broadcastAudio(sender, messageData) {
+    if (!sender.currentFreq) return;
 
-    const clients = channels.get(freq);
-    clients.forEach(client => {
-        if (client !== sender && client.readyState === WebSocket.OPEN) {
-            client.send(data);
+    // Range: +/- 10Hz
+    // Since we need to find clients in range, iteration over all connected clients is required 
+    // unless we optimize storage. For now, we iterate through wss.clients or our channels map.
+    // wss.clients is a Set of all connected clients.
+
+    wss.clients.forEach(client => {
+        if (client !== sender && client.readyState === WebSocket.OPEN && client.currentFreq) {
+            const diff = Math.abs(sender.currentFreq - client.currentFreq);
+            if (diff <= 10) {
+                client.send(messageData);
+            }
         }
     });
 }
+
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

@@ -5,128 +5,36 @@ const statusDisplay = document.getElementById('status-display');
 const pttBtn = document.getElementById('btn-ptt');
 const systemLog = document.getElementById('system-log');
 const statusIndicator = document.getElementById('connection-status');
-const currentFreqDisplay = document.getElementById('current-freq-display');
-const paddlesContainer = document.getElementById('paddles-container');
-const paddleLeft = document.getElementById('paddle-left'); // DOT
-const paddleRight = document.getElementById('paddle-right'); // DASH
+const visualizerCanvas = document.getElementById('signal-visualizer');
+const visualizerCtx = visualizerCanvas.getContext('2d');
 
 // State
 let audioCtx = null;
-let oscillator = null;
 let gainNode = null;
 let ws = null;
 let isTransmitting = false;
 let currentFreq = 440;
 let masterVolume = 0.5;
+let mediaStream = null;
+let mediaRecorder = null;
+let analyser = null;
+let noiseBuffer = null;
 
-// Feedback State
-let enableSound = true;
-let enableLight = true;
-let enableVibe = false;
-
-// Decoder State
-let lastSignalTime = 0;
-let lastSignalEndFunc = null; // Time when LAST signal ended
-let signalStartFunc = null;   // Time when CURRENT signal started
-let decoderBuffer = "";       // Builds up .-.. etc
-let decoderTimeout = null;
-const TIME_UNIT = 60; // Base timing in ms (adjust manually or auto-detect eventually)
-
-// Keyer State
-let isKeyerMode = false;
-let keyerWpm = 20;
-let keyerUnit = 1200 / keyerWpm;
-let keyerInterval = null;
-let paddleState = { left: false, right: false }; // left=dot, right=dash
-let keyerNext = null; // 'dot', 'dash', or null
-
-// Init Toggles
-if (fbSoundCheck) {
-    enableSound = fbSoundCheck.checked;
-    fbSoundCheck.addEventListener('change', (e) => enableSound = e.target.checked);
-}
-if (fbLightCheck) {
-    enableLight = fbLightCheck.checked;
-    fbLightCheck.addEventListener('change', (e) => enableLight = e.target.checked);
-}
-if (fbVibeCheck) {
-    enableVibe = fbVibeCheck.checked;
-    fbVibeCheck.addEventListener('change', (e) => {
-        enableVibe = e.target.checked;
-        if (enableVibe && navigator.vibrate) navigator.vibrate(50); // Test buzz
-    });
+// Helper: Log to simulated terminal
+function log(msg) {
+    systemLog.textContent = `> ${msg}`;
+    console.log(msg);
 }
 
-// Audio Setup
-function initAudio() {
-    if (audioCtx) return;
-
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    audioCtx = new AudioContext();
-
-    gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0;
-    gainNode.connect(audioCtx.destination);
-
-    oscillator = audioCtx.createOscillator();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 600;
-    oscillator.connect(gainNode);
-    oscillator.start();
+function setStatus(text, className) {
+    statusDisplay.textContent = text;
+    statusDisplay.className = 'transceiver-status ' + className;
 }
-
-
-
-function startTone() {
-    // Feedback: SOUND
-    if (enableSound) {
-        if (!audioCtx) initAudio();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-
-        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(masterVolume, audioCtx.currentTime + 0.005);
-    }
-
-    // Feedback: LIGHT & VIBE
-    if (enableLight) {
-        document.body.style.backgroundColor = '#1a2a1a'; // Subtle flash
-        setTimeout(() => document.body.style.backgroundColor = '', 50);
-    }
-
-    if (enableVibe && navigator.vibrate) {
-        try { navigator.vibrate(50); } catch (e) { }
-    }
-
-
-    // Visuals
-    if (!isKeyerMode) telegraphKey.classList.add('active'); // Only light up manual key if in manual?
-    // Actually we can light up whichever is active.
-
-    drawSignal(true);
-}
-
-function stopTone() {
-    if (!audioCtx) return;
-
-    gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-    gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.005);
-
-    if (!isKeyerMode) telegraphKey.classList.remove('active');
-
-    drawSignal(false);
-}
-
-
-// Location State REMOVED
-
 
 // WebSocket Setup
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Append current path to support subdirectories (e.g. aeoyna.com/morse)
-    // Ensure trailing slash for consistent WebSocket connection
+    // Support subdirectory deployment
     const path = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
     const wsUrl = `${protocol}//${window.location.host}${path}`;
 
@@ -136,18 +44,27 @@ function connectWebSocket() {
         statusIndicator.textContent = "ONLINE";
         statusIndicator.classList.remove('disconnected');
         statusIndicator.classList.add('connected');
-
-        // Re-tune if we were already on a freq
+        log("UPLINK ESTABLISHED");
         tuneFrequency(currentFreq);
     };
 
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+    ws.onmessage = async (event) => {
+        try {
+            const data = JSON.parse(event.data);
 
-        if (data.type === 'signal') {
-            handleReceivedSignal(data.state, data.volume);
-        } else if (data.type === 'status') {
-            console.log("Server:", data.msg);
+            if (data.type === 'audio') {
+                // Received Audio Data (JSON Base64)
+                const senderFreq = data.freq;
+                if (audioCtx) {
+                    playAudioChunk(data.data, senderFreq);
+                    setStatus('RECEIVING', 'receiving');
+                }
+            } else if (data.type === 'status') {
+                // console.log("Server:", data.msg);
+            }
+        } catch (e) {
+            // Check for binary (legacy) or error
+            console.error("WS Message Error", e);
         }
     };
 
@@ -155,6 +72,7 @@ function connectWebSocket() {
         statusIndicator.textContent = "OFFLINE";
         statusIndicator.classList.remove('connected');
         statusIndicator.classList.add('disconnected');
+        log("CONNECTION LOST. RETRYING...");
         setTimeout(connectWebSocket, 3000);
     };
 
@@ -163,337 +81,227 @@ function connectWebSocket() {
 
 function tuneFrequency(freq) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-        // Send tune request
-        const payload = { type: 'tune', freq: freq };
-        ws.send(JSON.stringify(payload));
-
-        if (currentFreqDisplay) {
-            currentFreqDisplay.textContent = `FREQ: ${freq}.0 Hz`;
-        }
-        // Update display logic if needed needed? 
-        // freqValue is updated by slider listener. 
-        // If we tune programmatically, we should update slider too.
-        // But usually tuning happens via slider.
+        ws.send(JSON.stringify({ type: 'tune', freq: freq }));
     }
 }
 
-function sendSignal(state) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        const payload = {
-            type: 'signal',
-            state: state,
-            clientId: 'me'
-        };
-        // Always send latest location just in case I moved
-        if (myLat !== null && myLon !== null) {
-            payload.lat = myLat;
-            payload.lon = myLon;
-        }
-        ws.send(JSON.stringify(payload));
-    }
-}
+// Audio System
+async function initAudio() {
+    if (audioCtx) return;
 
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
 
-// ----------------------------------------------------------------------
-// DECODER LOGIC
-// ----------------------------------------------------------------------
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
 
-function handleReceivedSignal(state) {
-    const now = Date.now();
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = masterVolume;
 
-    if (state === 'on') {
-        startTone(); // Modified startTone signature below
+        // Chain: Gain -> Analyser -> Destination
+        gainNode.connect(analyser);
+        analyser.connect(audioCtx.destination);
 
-
-        // Gap calculation: how long was it OFF?
-        if (lastSignalEndFunc) {
-            const gapDuration = now - lastSignalEndFunc;
-
-            // Heuristic for spacing
-            // 3 units = Letter Gap
-            // 7 units = Word Gap
-            // Using a flexible adaptive timing or fixed standard for now?
-            // Let's use simpler fixed thresholds for beta.
-            // Assuming approx 20 WPM standard (60ms unit) -> 3 units = 180ms, 7 units = 420ms
-
-            if (gapDuration > keyerUnit * 6) { // Word space
-                decodeChar(' ');
-                decoderBuffer = "";
-            } else if (gapDuration > keyerUnit * 2.5) { // Letter space
-                decodeBuffer();
-            }
+        // Noise Buffer (Pre-generate 2 seconds of white noise)
+        noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < output.length; i++) {
+            output[i] = Math.random() * 2 - 1;
         }
 
-        signalStartFunc = now;
+        // Microphone Access
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        log("AUDIO SYSTEM ONLINE");
 
-    } else { // state === 'off'
-        stopTone();
+    } catch (e) {
+        console.error("Audio Init Failed", e);
+        log("MIC ACCESS DENIED/ERROR");
+    }
+}
 
-        // Tone Duration
-        if (signalStartFunc) {
-            const duration = now - signalStartFunc;
-            lastSignalEndFunc = now;
+// Playback Logic with Interference
+async function playAudioChunk(base64Data, senderFreq) {
+    if (!audioCtx) await initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-            // Dot vs Dash
-            // Dot = 1 unit, Dash = 3 units.
-            // Threshold = 1.5 units?
-            // If < 2 * unit -> Dot
-            // If > 2 * unit -> Dash
+    // Reset status after a short delay
+    clearTimeout(window.rxTimeout);
+    window.rxTimeout = setTimeout(() => setStatus('STANDBY', ''), 500);
 
-            if (duration > keyerUnit * 2) {
-                decoderBuffer += "-";
-            } else {
-                decoderBuffer += ".";
-            }
-
-            // Wait to see if more comes, or if we should decode a character
-            clearTimeout(decoderTimeout);
-            decoderTimeout = setTimeout(() => {
-                decodeBuffer();
-            }, keyerUnit * 4); // Wait > 3 units to confirm end of char
+    try {
+        // Decode Base64 to ArrayBuffer
+        const binaryString = window.atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
         }
-    }
-}
+        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
 
-function decodeBuffer() {
-    if (!decoderBuffer) return;
+        // Interference Calculation
+        const diff = Math.abs(currentFreq - senderFreq);
+        let volRatio = 1.0;
+        let noiseRatio = 0.0;
 
-    // Look up buffer in MORSE_TO_CHAR
-    // Check if 'morse_dict.js' loaded properly? We assume yes.
-    if (typeof MORSE_TO_CHAR !== 'undefined') {
-        const char = MORSE_TO_CHAR[decoderBuffer] || '?';
-        decodeChar(char);
-    } else {
-        console.warn("Dictionary not loaded");
-    }
-    decoderBuffer = "";
-}
+        // Logic: 
+        // 0Hz diff = 100% vol, 0% noise
+        // 10Hz diff = 50% vol, 50% noise
+        // >10Hz diff = 0% vol (handled by server mostly, but good to have client check)
 
-function decodeChar(char) {
-    incomingText.textContent += char;
-    incomingText.scrollTop = incomingText.scrollHeight;
-}
-
-// ----------------------------------------------------------------------
-// ELECTRONIC KEYER LOGIC
-// ----------------------------------------------------------------------
-
-function startKeyerLoop() {
-    if (keyerInterval) return;
-
-    // We utilize a simple state machine loop for Iambic Mode B behavior (or simpler A)
-    // Actually, simpler approach:
-    // If paddle pressed, schedule Dot or Dash.
-
-    let isBusy = false; // Is currently playing a symbol or space
-
-    keyerInterval = setInterval(() => {
-        if (isBusy) return;
-
-        // Check paddles
-        let symbol = null;
-
-        if (paddleState.left) symbol = 'dot';
-        if (paddleState.right) symbol = 'dash';
-
-        // Priority / Iambic Squeeze
-        // For simple Iambic, we can just alternate if both held.
-        // Let's do simple priority for now: Left (Dot) if not busy? 
-        // Or implement a queue.
-
-        if (symbol) {
-            isBusy = true;
-            playElement(symbol).then(() => {
-                isBusy = false;
-            });
+        if (diff > 0) {
+            noiseRatio = Math.min((diff / 10) * 0.8, 0.8); // Max 80% noise
+            volRatio = Math.max(1.0 - (diff / 15), 0.0);   // Reduce volume
         }
 
-    }, 10); // High polling rate
-}
+        // Voice Source
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        const voiceGain = audioCtx.createGain();
+        voiceGain.gain.value = volRatio;
+        source.connect(voiceGain);
+        voiceGain.connect(gainNode);
+        source.start();
 
-function stopKeyerLoop() {
-    clearInterval(keyerInterval);
-    keyerInterval = null;
-}
-
-function playElement(type) {
-    return new Promise(resolve => {
-        // Dot: 1 ON, 1 OFF
-        // Dash: 3 ON, 1 OFF
-
-        const onTime = type === 'dot' ? keyerUnit : keyerUnit * 3;
-
-        // Transmit ON
-        startTone();
-        sendSignal('on');
-        handleReceivedSignal('on'); // Feed local decoder
-
-        if (type === 'dot') paddleLeft.classList.add('active');
-        if (type === 'dash') paddleRight.classList.add('active');
-
-        setTimeout(() => {
-            // Transmit OFF
-            stopTone();
-            sendSignal('off');
-            handleReceivedSignal('off'); // Feed local decoder
-
-            if (type === 'dot') paddleLeft.classList.remove('active');
-            if (type === 'dash') paddleRight.classList.remove('active');
-
-            // Intra-char space (1 unit)
-            setTimeout(() => {
-                resolve();
-            }, keyerUnit);
-
-        }, onTime);
-    });
-}
-
-// ----------------------------------------------------------------------
-// EVENT LISTENERS
-// ----------------------------------------------------------------------
-
-// Toggle Mode
-keyerModeToggle.addEventListener('change', (e) => {
-    isKeyerMode = e.target.checked;
-
-    if (isKeyerMode) {
-        keyerModeLabel.textContent = "AUTO KEYER (IAMBIC)";
-        telegraphKey.style.display = 'none';
-        paddlesContainer.style.display = 'flex';
-        startKeyerLoop();
-    } else {
-        keyerModeLabel.textContent = "MANUAL KEY";
-        telegraphKey.style.display = 'inline-block';
-        paddlesContainer.style.display = 'none';
-        stopKeyerLoop();
-    }
-});
-
-// Init Audio
-document.body.addEventListener('click', () => {
-    if (!audioCtx) initAudio();
-}, { once: true });
-
-// Manual Key (Mouse/Touch)
-function handleKeyStart(e) {
-    if (isKeyerMode) return;
-    e.preventDefault();
-    if (!isTransmitting) {
-        isTransmitting = true;
-        startTone();
-        sendSignal('on');
-        handleReceivedSignal('on');
-    }
-}
-
-function handleKeyStop(e) {
-    if (isKeyerMode) return;
-    e.preventDefault();
-    if (isTransmitting) {
-        isTransmitting = false;
-        stopTone();
-        sendSignal('off');
-        handleReceivedSignal('off');
-    }
-}
-
-telegraphKey.addEventListener('mousedown', handleKeyStart);
-telegraphKey.addEventListener('touchstart', handleKeyStart);
-
-telegraphKey.addEventListener('mouseup', handleKeyStop);
-telegraphKey.addEventListener('mouseleave', handleKeyStop);
-telegraphKey.addEventListener('touchend', handleKeyStop);
-
-// Mouse/Touch Paddles
-paddleLeft.addEventListener('mousedown', (e) => { e.preventDefault(); paddleState.left = true; });
-paddleLeft.addEventListener('mouseup', (e) => { e.preventDefault(); paddleState.left = false; });
-paddleLeft.addEventListener('mouseleave', (e) => { e.preventDefault(); paddleState.left = false; });
-
-paddleRight.addEventListener('mousedown', (e) => { e.preventDefault(); paddleState.right = true; });
-paddleRight.addEventListener('mouseup', (e) => { e.preventDefault(); paddleState.right = false; });
-paddleRight.addEventListener('mouseleave', (e) => { e.preventDefault(); paddleState.right = false; });
-
-// Keyboard Controls
-document.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-
-    if (e.code === 'Space' && !isKeyerMode) {
-        // Manual
-        if (!isTransmitting) {
-            isTransmitting = true;
-            startTone();
-            sendSignal('on');
-            handleReceivedSignal('on');
+        // Noise Source
+        if (noiseRatio > 0 && noiseBuffer) {
+            const nSource = audioCtx.createBufferSource();
+            nSource.buffer = noiseBuffer;
+            nSource.loop = true;
+            const nGain = audioCtx.createGain();
+            nGain.gain.value = noiseRatio * 0.3; // Scale noise down slightly
+            nSource.connect(nGain);
+            nGain.connect(gainNode);
+            nSource.start();
+            // Stop noise when audio ends
+            nSource.stop(audioCtx.currentTime + audioBuffer.duration);
         }
+
+    } catch (e) {
+        console.error("Decode error", e);
+    }
+}
+
+// PTT Transmission
+async function startTransmission(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (isTransmitting) return;
+
+    // Init audio on first interaction
+    if (!audioCtx) await initAudio();
+    if (!mediaStream) {
+        log("NO MICROPHONE");
+        return;
     }
 
-    if (isKeyerMode) {
-        if (e.key.toLowerCase() === 'z') paddleState.left = true;
-        if (e.key.toLowerCase() === 'x') paddleState.right = true;
-    }
-});
+    isTransmitting = true;
+    pttBtn.classList.add('active');
+    setStatus('TRANSMITTING', 'transmitting');
 
-document.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' && !isKeyerMode) {
-        if (isTransmitting) {
-            isTransmitting = false;
-            stopTone();
-            sendSignal('off');
-            handleReceivedSignal('off');
+    const options = { mimeType: 'audio/webm;codecs=opus' };
+    try {
+        mediaRecorder = new MediaRecorder(mediaStream, options);
+    } catch (e) {
+        mediaRecorder = new MediaRecorder(mediaStream); // Fallback
+    }
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64data = reader.result.split(',')[1];
+                ws.send(JSON.stringify({
+                    type: 'audio',
+                    freq: currentFreq,
+                    data: base64data
+                }));
+            };
+            reader.readAsDataURL(e.data);
         }
-    }
+    };
 
-    if (isKeyerMode) {
-        if (e.key.toLowerCase() === 'z') paddleState.left = false;
-        if (e.key.toLowerCase() === 'x') paddleState.right = false;
-    }
-});
+    mediaRecorder.start(100); // 100ms chunks
+}
 
-// Slider updates
+function stopTransmission(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!isTransmitting) return;
+
+    isTransmitting = false;
+    pttBtn.classList.remove('active');
+    setStatus('STANDBY', '');
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+}
+
+// UI Event Listeners
+if (pttBtn) {
+    pttBtn.addEventListener('mousedown', startTransmission);
+    pttBtn.addEventListener('touchstart', startTransmission);
+    pttBtn.addEventListener('mouseup', stopTransmission);
+    pttBtn.addEventListener('mouseleave', stopTransmission);
+    pttBtn.addEventListener('touchend', stopTransmission);
+}
+
 freqSlider.addEventListener('input', (e) => {
-    currentFreq = e.target.value;
+    currentFreq = parseInt(e.target.value);
     freqValue.textContent = currentFreq;
 });
 freqSlider.addEventListener('change', () => tuneFrequency(currentFreq));
 
 volumeSlider.addEventListener('input', (e) => {
     masterVolume = parseFloat(e.target.value);
-    if (gainNode && isTransmitting) {
+    if (gainNode) {
         gainNode.gain.setTargetAtTime(masterVolume, audioCtx.currentTime, 0.01);
     }
 });
 
-
-
 // Visualizer
-function drawSignal(isActive) {
+function drawVisualizer() {
     const width = visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth;
     const height = visualizerCanvas.height = visualizerCanvas.parentElement.clientHeight;
 
     visualizerCtx.clearRect(0, 0, width, height);
-    visualizerCtx.beginPath();
-    visualizerCtx.strokeStyle = isActive ? '#39ff14' : '#1e800a';
     visualizerCtx.lineWidth = 2;
+    visualizerCtx.strokeStyle = '#39ff14'; // Cyberpunk Green
+    visualizerCtx.beginPath();
     visualizerCtx.moveTo(0, height / 2);
 
-    if (isActive) {
-        for (let i = 0; i < width; i += 5) {
-            const jitter = (Math.random() - 0.5) * height * 0.8;
-            visualizerCtx.lineTo(i, height / 2 + jitter);
+    if (analyser) {
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyser.getByteTimeDomainData(dataArray);
+
+        const sliceWidth = width * 1.0 / bufferLength;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = v * height / 2;
+
+            if (i === 0) visualizerCtx.moveTo(x, y);
+            else visualizerCtx.lineTo(x, y);
+
+            x += sliceWidth;
         }
     } else {
+        // IDLE Line
         visualizerCtx.lineTo(width, height / 2);
     }
-    visualizerCtx.stroke();
 
-    if (isActive) {
-        requestAnimationFrame(() => drawSignal(true));
-    }
+    visualizerCtx.stroke();
+    requestAnimationFrame(drawVisualizer);
 }
 
 // Init
 window.addEventListener('load', () => {
     connectWebSocket();
-    drawSignal(false);
+    drawVisualizer();
+
+    // Auto-init audio context on first click anywhere if needed
+    document.body.addEventListener('click', () => {
+        if (!audioCtx) initAudio();
+    }, { once: true });
 });
