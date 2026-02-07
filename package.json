@@ -1,6 +1,6 @@
 {
   "name": "morse-communicator",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Real-time Morse code communication site",
   "main": "server.js",
   "scripts": {
