@@ -29,6 +29,11 @@
                 <div class="control-group frequency-group">
                     <label for="freq-slider">TUNING FREQUENCY (Hz)</label>
                     <input type="range" id="freq-slider" min="300" max="1200" step="10" value="440">
+                    <!-- Helper / Log -->
+                    <div class="decoder-area">
+                        <label>SYSTEM LOG</label>
+                        <div id="system-log" class="decoded-text">System Ready...</div>
+                    </div>
                     <div class="freq-readout"><span id="freq-value">440</span> Hz</div>
                 </div>
 
@@ -36,47 +41,23 @@
                     <label for="volume-slider">RX VOLUME</label>
                     <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5">
                 </div>
-
-                <div class="control-group feedback-group">
-                    <label>FEEDBACK</label>
-                    <div class="feedback-toggles">
-                        <label class="toggle-label"><input type="checkbox" id="fb-sound" checked> SOUND</label>
-                        <label class="toggle-label"><input type="checkbox" id="fb-light" checked> LIGHT</label>
-                        <label class="toggle-label"><input type="checkbox" id="fb-vibe"> VIBRATION</label>
-                    </div>
-                </div>
             </div>
 
             <div class="action-area">
-                <div class="key-mode-toggle">
-                    <label class="switch">
-                        <input type="checkbox" id="keyer-mode-toggle">
-                        <span class="slider round"></span>
-                    </label>
-                    <span id="keyer-mode-label">MANUAL KEY</span>
-                </div>
-
-                <!-- Manual Key -->
-                <button id="telegraph-key" class="telegraph-btn">TRANSMIT</button>
-
-                <!-- Electronic Keyer Paddles (Hidden by default) -->
-                <div id="paddles-container" class="paddles-container" style="display: none;">
-                    <button id="paddle-left" class="paddle-btn">DOT (Z)</button>
-                    <button id="paddle-right" class="paddle-btn">DASH (X)</button>
-                </div>
             </div>
+    </div>
 
-            <div class="decoder-panel">
-                <div class="decoder-section">
-                    <h3>INCOMING DECODE [BETA]</h3>
-                    <div id="incoming-text" class="code-display"></div>
-                </div>
-            </div>
-        </main>
+    <div class="decoder-panel">
+        <div class="decoder-section">
+            <h3>INCOMING DECODE [BETA]</h3>
+            <div id="incoming-text" class="code-display"></div>
+        </div>
+    </div>
+    </main>
 
-        <footer>
-            <p>SYSTEM READY. USE HEADPHONES FOR CLARITY.</p>
-        </footer>
+    <footer>
+        <p>SYSTEM READY. USE HEADPHONES FOR CLARITY.</p>
+    </footer>
     </div>
     <script src="morse_dict.js"></script>
     <script src="script.js"></script>

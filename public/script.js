@@ -1,21 +1,11 @@
 const freqSlider = document.getElementById('freq-slider');
 const freqValue = document.getElementById('freq-value');
 const volumeSlider = document.getElementById('volume-slider');
-const telegraphKey = document.getElementById('telegraph-key');
+const statusDisplay = document.getElementById('status-display');
+const pttBtn = document.getElementById('btn-ptt');
+const systemLog = document.getElementById('system-log');
 const statusIndicator = document.getElementById('connection-status');
 const currentFreqDisplay = document.getElementById('current-freq-display');
-const visualizerCanvas = document.getElementById('signal-visualizer');
-const visualizerCtx = visualizerCanvas.getContext('2d');
-const incomingText = document.getElementById('incoming-text');
-
-// Feedback Toggles
-const fbSoundCheck = document.getElementById('fb-sound');
-const fbLightCheck = document.getElementById('fb-light');
-const fbVibeCheck = document.getElementById('fb-vibe');
-
-// Keyer & Paddles
-const keyerModeToggle = document.getElementById('keyer-mode-toggle');
-const keyerModeLabel = document.getElementById('keyer-mode-label');
 const paddlesContainer = document.getElementById('paddles-container');
 const paddleLeft = document.getElementById('paddle-left'); // DOT
 const paddleRight = document.getElementById('paddle-right'); // DASH
@@ -135,7 +125,10 @@ function stopTone() {
 // WebSocket Setup
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    // Append current path to support subdirectories (e.g. aeoyna.com/morse)
+    // Ensure trailing slash for consistent WebSocket connection
+    const path = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+    const wsUrl = `${protocol}//${window.location.host}${path}`;
 
     ws = new WebSocket(wsUrl);
 

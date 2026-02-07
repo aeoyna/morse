@@ -89,6 +89,94 @@ h1 {
     border-color: var(--alert-color);
 }
 
+/* Transceiver UI */
+.action-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 20px;
+    position: relative;
+    z-index: 10;
+}
+
+#signal-visualizer {
+    width: 100%;
+    height: 80px;
+    background-color: #001100;
+    border: 1px solid var(--border-color);
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+    image-rendering: pixelated;
+    /* Retro feel */
+    border-radius: 5px;
+}
+
+.transceiver-status {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-shadow: 0 0 5px var(--text-dim);
+    height: 30px;
+}
+
+.transceiver-status.transmitting {
+    color: #ff3333;
+    /* Red for TX */
+    text-shadow: 0 0 10px #ff3333;
+}
+
+.transceiver-status.receiving {
+    color: var(--text-primary);
+    /* Green for RX */
+    text-shadow: 0 0 10px var(--text-primary);
+}
+
+.ptt-button {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #2a2a2a 0%, #111 100%);
+    border: 4px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 0 15px var(--text-dim), inset 0 0 20px rgba(0, 0, 0, 0.5);
+    transition: all 0.1s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+
+.ptt-button:active,
+.ptt-button.active {
+    background: radial-gradient(circle, #331111 0%, #110000 100%);
+    border-color: #ff3333;
+    color: #ff3333;
+    box-shadow: 0 0 25px #ff3333, inset 0 0 10px rgba(0, 0, 0, 0.8);
+    transform: scale(0.95);
+}
+
+/* System Log */
+.decoded-text {
+    width: 100%;
+    height: 100px;
+    background-color: rgba(0, 0, 0, 0.8);
+    border: 1px solid var(--text-dim);
+    color: var(--text-primary);
+    padding: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    text-transform: uppercase;
+}
+
 .visualizer-container {
     height: 100px;
     border: 1px solid var(--text-dim);
@@ -96,11 +184,6 @@ h1 {
     background: #000;
     position: relative;
     overflow: hidden;
-}
-
-#signal-visualizer {
-    width: 100%;
-    height: 100%;
 }
 
 .controls-container {
@@ -175,29 +258,6 @@ input[type=range]::-webkit-slider-runnable-track {
     font-weight: bold;
 }
 
-.action-area {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 30px;
-}
-
-.telegraph-btn {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    background: transparent;
-    border: 4px solid var(--text-primary);
-    color: var(--text-primary);
-    font-size: 1.2rem;
-    cursor: pointer;
-    transition: all 0.1s;
-    box-shadow: var(--crt-glow), inset 0 0 20px rgba(57, 255, 20, 0.2);
-    /* Disable touch selection */
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-.telegraph-btn:active,
 .telegraph-btn.active {
     background: var(--text-primary);
     color: var(--bg-color);
