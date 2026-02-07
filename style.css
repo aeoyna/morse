@@ -177,6 +177,17 @@ h1 {
     text-transform: uppercase;
 }
 
+.usage-hint {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    text-align: center;
+    margin-top: 10px;
+    letter-spacing: 1px;
+    border: 1px solid var(--text-dim);
+    padding: 5px 10px;
+    background: rgba(0, 20, 0, 0.5);
+}
+
 .visualizer-container {
     height: 100px;
     border: 1px solid var(--text-dim);
